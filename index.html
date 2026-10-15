@@ -688,7 +688,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 /* ---------- waitlist counter ---------- */
 function paintWaitlistCount(genuineCount){
   const n=357+Math.max(0,Number(genuineCount)||0);
-  $('#counterWrap').innerHTML='<div class="counter"><i></i><strong>'+n.toLocaleString('en-IN')+'</strong><span>Concept waitlist counter</span><small style="display:block;margin-top:5px;font-size:10px;opacity:.75">357 is an illustrative baseline; new entries count only after a successful save.</small></div>';
+  $('#counterWrap').innerHTML='<div class="counter"><i></i><strong>'+n.toLocaleString('en-IN')+'</strong><span>Concept waitlist counter</span></div>';
   $('#joinedStat').hidden=false; $('#joinedNum').textContent=n.toLocaleString('en-IN');
 }
 async function submitViaProxy(payload){
