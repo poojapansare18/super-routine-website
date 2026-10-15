@@ -1,27 +1,42 @@
 /** Super Routine waitlist backend. Bound to the existing spreadsheet or set SPREADSHEET_ID. */
-const SPREADSHEET_ID = '1MfYqSSiV5WDnqEnwz54Qc3GsdC5dOtVHbrc_nbFDZk';
+const SPREADSHEET_ID = '1MfYqSSiV5WDnqlEnwz54Qc3GsdC5dOtVHbrc_nbFDZk';
 const SHEET_NAME = 'Responses';
 const BASELINE = 357;
 const HEADERS = ['waitlist_number','submitted_at','first_name','whatsapp_number','primary_goal','current_pain_point','packaging_preference','supplement_format','sachet_preference','monthly_price','purchase_intent','discovery_source','purchase_barrier','marketing_consent','updates_opt_in','page_source'];
 function doGet(e){
   const p=(e&&e.parameter)||{};
-  const sheet=getSheet_();
-  const people=uniquePeople_(sheet);
-  const result={ok:true,count:people.length,displayNumber:BASELINE+people.length};
+  let result;
+  if(String(p.action||'')==='submit'){
+    try { result=savePayload_(JSON.parse(String(p.payload||''))); }
+    catch(err) { result={ok:false,reason:'server_error',message:'The response could not be saved. Please try again.'}; }
+  } else {
+    const people=uniquePeople_(getSheet_()).length;
+    result={ok:true,count:people,displayNumber:BASELINE+people};
+  }
   const callback=String(p.callback||'');
-  if(callback){if(!/^[A-Za-z_$][0-9A-Za-z_$]*$/.test(callback))return ContentService.createTextOutput('/* invalid callback */').setMimeType(ContentService.MimeType.JAVASCRIPT);return ContentService.createTextOutput(callback+'('+JSON.stringify(result)+');').setMimeType(ContentService.MimeType.JAVASCRIPT);}
+  if(callback){
+    if(!/^[A-Za-z_$][0-9A-Za-z_$]*$/.test(callback))return ContentService.createTextOutput('/* invalid callback */').setMimeType(ContentService.MimeType.JAVASCRIPT);
+    return ContentService.createTextOutput(callback+'('+JSON.stringify(result)+');').setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
   return json_(result);
 }
 function doPost(e){
+  try {
+    const raw=e&&e.parameter&&e.parameter.payload;
+    if(!raw)return json_({ok:false,reason:'missing_payload'});
+    return json_(savePayload_(JSON.parse(raw)));
+  } catch(err) {
+    return json_({ok:false,reason:'server_error',message:'The response could not be saved. Please try again.'});
+  }
+}
+function savePayload_(p){
   const lock=LockService.getScriptLock();
   try{
     lock.waitLock(30000);
-    const raw=e&&e.parameter&&e.parameter.payload;
-    if(!raw)return json_({ok:false,reason:'missing_payload'});
-    const p=JSON.parse(raw),name=clean_(p.first_name,80),phone=clean_(p.whatsapp_number||p.phone,32),digits=phone.replace(/\D/g,'');
-    if(name.length<2||digits.length<8||p.marketing_consent!==true)return json_({ok:false,reason:'invalid_fields',message:'Please enter your name, a valid WhatsApp number and consent.'});
+    const name=clean_(p.first_name,80),phone=clean_(p.whatsapp_number||p.phone,32),digits=phone.replace(/\\D/g,'');
+    if(name.length<2||digits.length<8||p.marketing_consent!==true)return {ok:false,reason:'invalid_fields',message:'Please enter your name, a valid WhatsApp number and consent.'};
     const sh=getSheet_(),last=sh.getLastRow(),normalized=phoneKey_(phone);
-    if(last>1){const phones=sh.getRange(2,4,last-1,1).getDisplayValues().flat();if(phones.some(v=>phoneKey_(v)===normalized))return json_({ok:false,reason:'already_registered'});}
+    if(last>1){const phones=sh.getRange(2,4,last-1,1).getDisplayValues().flat();if(phones.some(v=>phoneKey_(v)===normalized))return {ok:false,reason:'already_registered'};}
     const peopleBefore=uniquePeople_(sh).length;
     const waitlistNo=BASELINE+peopleBefore+1;
     const min=Number(p.monthly_price_min_inr||0),max=Number(p.monthly_price_max_inr||0);
@@ -29,9 +44,10 @@ function doPost(e){
     sh.appendRow([waitlistNo,new Date(),safe_(name),safe_(phone),clean_(p.primary_goal,120),clean_(p.current_pain_point,160),clean_(p.packaging_preference,80),clean_(p.supplement_format,80),clean_(p.sachet_preference,80),price,clean_(p.purchase_intent,100),clean_(p.discovery_source,100),'',true,false,clean_(p.page,1000)]);
     SpreadsheetApp.flush();
     try{refreshDashboard_();}catch(err){console.error('Dashboard refresh warning: '+err);}
-    return json_({ok:true,waitlist_number:waitlistNo,countAfterSave:peopleBefore+1});
-  }catch(err){return json_({ok:false,reason:'server_error',message:'The response could not be saved. Please try again.'});}
-  finally{try{lock.releaseLock();}catch(ignore){}}
+    return {ok:true,waitlist_number:waitlistNo,countAfterSave:peopleBefore+1};
+  } finally {
+    try{lock.releaseLock();}catch(ignore){}
+  }
 }
 function setupSheet(){const sh=getSheet_();refreshDashboard_();return 'Ready: Responses and Founder Dashboard are set up.';}
 function refreshDashboard_(){
