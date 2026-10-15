@@ -673,8 +673,8 @@ footer nav.socials a.soc,footer nav.socials a.soc.ig,footer nav.socials a.soc.li
 <script>
 /* ===== SETTINGS: edit these before going live ===== */
 const CONFIG = {
-  FORM_ENDPOINT: "https://script.google.com/macros/s/AKfcybyMRQyWq9Ju2evRYLQQa7RuwrSKNQ7B4rOBm8hAWiDkCXG5XeklnPxgoWKFIrxaHajveg/exec",
-  COUNT_ENDPOINT: "https://script.google.com/macros/s/AKfcybyMRQyWq9Ju2evRYLQQa7RuwrSKNQ7B4rOBm8hAWiDkCXG5XeklnPxgoWKFIrxaHajveg/exec",
+  FORM_ENDPOINT: "/api/waitlist",
+  COUNT_ENDPOINT: "/api/waitlist",
   MEMBER_COUNT: 357,      // illustrative baseline; genuine registrations are added only after a confirmed save
   CONTACT_EMAIL: "",      // add a monitored contact email if desired
   INSTAGRAM: "https://www.instagram.com/super.routine/", LINKEDIN: "", WHATSAPP: "https://wa.me/919529966963", YOUTUBE: "", PRIVACY_URL: "", TERMS_URL: ""
@@ -691,26 +691,22 @@ function paintWaitlistCount(genuineCount){
   $('#counterWrap').innerHTML='<div class="counter"><i></i><strong>'+n.toLocaleString('en-IN')+'</strong><span>Concept waitlist counter</span><small style="display:block;margin-top:5px;font-size:10px;opacity:.75">357 is an illustrative baseline; new entries count only after a successful save.</small></div>';
   $('#joinedStat').hidden=false; $('#joinedNum').textContent=n.toLocaleString('en-IN');
 }
-function submitViaJsonp(payload){
-  return new Promise((resolve,reject)=>{
-    const callback='srSubmitCallback';
-    const timer=setTimeout(()=>{cleanup();reject(new Error('The request timed out. Check the Google Apps Script deployment and try again.'));},20000);
-    function cleanup(){clearTimeout(timer);try{delete window[callback]}catch(e){window[callback]=undefined}if(script.parentNode)script.parentNode.removeChild(script);}
-    window[callback]=data=>{cleanup();resolve(data);};
-    const script=document.createElement('script');
-    script.onerror=()=>{cleanup();reject(new Error('Google Apps Script did not respond. Verify the deployed /exec URL and access settings.'));};
-    script.src=CONFIG.FORM_ENDPOINT+'?action=submit&callback='+callback+'&payload='+encodeURIComponent(JSON.stringify(payload))+'&t='+Date.now();
-    document.head.appendChild(script);
+async function submitViaProxy(payload){
+  const response=await fetch(CONFIG.FORM_ENDPOINT,{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+    body:new URLSearchParams({payload:JSON.stringify(payload)})
   });
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.message||'The waitlist service returned an error.');
+  return result;
 }
 function refreshWaitlistCount(){
   if(!CONFIG.COUNT_ENDPOINT){paintWaitlistCount(0);return;}
-  const callback='srCountCallback';
-  window[callback]=function(data){if(data&&data.ok)paintWaitlistCount(data.count);try{delete window[callback]}catch(e){window[callback]=undefined}script.remove();};
-  const script=document.createElement('script');
-  script.src=CONFIG.COUNT_ENDPOINT+'?action=count&callback='+callback+'&t='+Date.now();
-  script.onerror=function(){paintWaitlistCount(0);try{delete window[callback]}catch(e){}script.remove();};
-  document.head.appendChild(script);
+  fetch(CONFIG.COUNT_ENDPOINT+'?action=count&t='+Date.now(),{method:'GET',cache:'no-store'})
+    .then(r=>{if(!r.ok)throw new Error('Count endpoint unavailable');return r.json();})
+    .then(data=>{if(data&&data.ok)paintWaitlistCount(data.count);})
+    .catch(()=>paintWaitlistCount(0));
 }
 refreshWaitlistCount();
 (function(){
@@ -889,12 +885,12 @@ $('#nextBtn').addEventListener('click',async()=>{
   const btn=$('#nextBtn');btn.disabled=true;btn.textContent='Saving...';
   try{
     if(!CONFIG.FORM_ENDPOINT) throw new Error('The Google Sheets endpoint is not configured yet.');
-    const result=await submitViaJsonp(payload);
+    const result=await submitViaProxy(payload);
     if(!result.ok&&result.reason==='already_registered'){
       btn.disabled=false;btn.innerHTML='Claim founding access <span aria-hidden="true">→</span>';
       $('#err').textContent='This WhatsApp number is already registered. No duplicate response was saved.';return;
     }
-    if(!response.ok||!result.ok) throw new Error(result.message||'The response could not be saved. Please try again.');
+    if(!result.ok) throw new Error(result.message||'The response could not be saved. Please try again.');
     paintWaitlistCount(result.countAfterSave==null?Number(result.waitlist_number)-357:result.countAfterSave);
   }catch(e){
     btn.disabled=false;btn.innerHTML='Claim founding access <span aria-hidden="true">→</span>';
