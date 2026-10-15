@@ -51,19 +51,128 @@ function savePayload_(p){
 }
 function setupSheet(){const sh=getSheet_();refreshDashboard_();return 'Ready: Responses and Founder Dashboard are set up.';}
 function refreshDashboard_(){
-  const ss=SpreadsheetApp.openById(SPREADSHEET_ID),sh=getSheet_(),rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,HEADERS.length).getValues().filter(r=>r.some(v=>v!==''&&v!==null)):[];
-  let d=ss.getSheetByName('Founder Dashboard');if(!d)d=ss.insertSheet('Founder Dashboard');d.clear();
+  const ss=SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sh=getSheet_();
+  const last=sh.getLastRow();
+  const headers=sh.getRange(1,1,1,sh.getLastColumn()).getDisplayValues()[0].map(h=>String(h).trim());
+  const rows=last>1?sh.getRange(2,1,last-1,sh.getLastColumn()).getValues().filter(r=>r.some(v=>v!==''&&v!==null)):[];
+  const ix={};headers.forEach((h,i)=>ix[h]=i);
+  const val=(row,key)=>ix[key]===undefined?'':String(row[ix[key]]==null?'':row[ix[key]]).trim();
+  const splitAnswers=v=>String(v||'').split(/[,;\\n]+/).map(s=>s.trim()).filter(Boolean);
+  const countAnswers=(key,multi)=>{
+    const counts={};
+    rows.forEach(row=>{
+      const raw=val(row,key);
+      const answers=multi?splitAnswers(raw):(raw?[raw]:[]);
+      const seen={};
+      answers.forEach(answer=>{
+        const normalized=answer.replace(/\\s+/g,' ').trim();
+        if(!normalized)return;
+        const dedupe=normalized.toLowerCase();
+        if(seen[dedupe])return;
+        seen[dedupe]=true;
+        counts[normalized]=(counts[normalized]||0)+1;
+      });
+    });
+    return Object.keys(counts).map(label=>[label,counts[label],rows.length?counts[label]/rows.length:0]).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
+  };
+
+  let d=ss.getSheetByName('Founder Dashboard');if(!d)d=ss.insertSheet('Founder Dashboard');
+  let a=ss.getSheetByName('Analysis Data');if(!a)a=ss.insertSheet('Analysis Data');
+  d.getCharts().forEach(chart=>d.removeChart(chart));
+  [d,a].forEach(s=>s.getDataRange().getMergedRanges().forEach(r=>r.breakApart()));
+  d.clear();a.clear();
+
+  const people=uniquePeople_(sh).length;
+  const optIndex=ix.updates_opt_in;
+  const opt=optIndex===undefined?0:rows.filter(r=>r[optIndex]===true||String(r[optIndex]).toLowerCase()==='true').length;
+  const consentIndex=ix.marketing_consent;
+  const consent=consentIndex===undefined?0:rows.filter(r=>r[consentIndex]===true||String(r[consentIndex]).toLowerCase()==='true').length;
+  const optRate=rows.length?Math.round(opt/rows.length*100)+'%':'—';
+  const consentRate=rows.length?Math.round(consent/rows.length*100)+'%':'—';
+
   d.getRange('A1:H1').merge().setValue('SUPER ROUTINE  |  FOUNDER DASHBOARD');
-  d.getRange('A2:H2').merge().setValue('Live customer research snapshot');
-  const people=uniquePeople_(sh).length, opt=rows.filter(r=>r[14]===true).length;
-  const cards=[['A4:B4','A5:B6','SAVED RESPONSES',people,'#DCEBFF','#174A8B'],['C4:D4','C5:D6','DISPLAY COUNTER',BASELINE+people,'#DDF7E8','#176B45'],['E4:F4','E5:F6','UPDATE OPT-IN','—','#FCE8D5','#9A4D0A'],['G4:H4','G5:H6','SAMPLE',people<10?'Early':'Growing','#EDE3FF','#6336A3']];
-  cards.forEach(c=>{d.getRange(c[0]).merge().setValue(c[2]).setBackground(c[4]).setFontColor(c[5]).setFontWeight('bold');d.getRange(c[1]).merge().setValue(c[3]).setBackground(c[4]).setFontColor(c[5]).setFontSize(22).setFontWeight('bold');});
-  d.getRange('A8:H8').merge().setValue('QUICK INSIGHTS').setBackground('#17365D').setFontColor('#FFFFFF').setFontWeight('bold');
-  const fields=[['PRIMARY GOAL',5],['TOP PAIN POINT',6],['PACKAGING',7],['FORMAT',8],['PRICE RANGE',10],['PURCHASE INTENT',11],['DISCOVERY',12]];
-  const lines=fields.map(([label,col])=>{const counts={};rows.forEach(r=>{const v=String(r[col-1]||'').trim();if(v)counts[v]=(counts[v]||0)+1;});const top=Object.keys(counts).sort((a,b)=>counts[b]-counts[a])[0];return [label,top?top+' · '+counts[top]:'No responses yet'];});
-  d.getRange(9,1,lines.length,2).setValues(lines);d.getRange('A9:A15').setBackground('#EAF1FB').setFontWeight('bold');d.getRange('B9:B15').setBackground('#F7F9FC');
-  d.setFrozenRows(2);d.setColumnWidths(1,8,130);d.setRowHeight(1,42);d.setRowHeight(2,26);d.getRange('A1:H1').setBackground('#17365D').setFontColor('#FFFFFF').setFontSize(17).setFontWeight('bold');d.getRange('A2:H2').setBackground('#EAF1F8').setFontColor('#52657A');d.getRange('A4:H6').setVerticalAlignment('middle');d.setRowHeights(9,7,28);d.getRange('A9:B15').setWrap(true);ss.setActiveSheet(d);ss.moveActiveSheet(1);
+  d.getRange('A2:H2').merge().setValue('Customer research snapshot  •  Updated '+Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'dd MMM yyyy, HH:mm'));
+  const cards=[
+    ['A4:B4','A5:B6','SAVED RESPONSES',rows.length,'#DCEBFF','#174A8B'],
+    ['C4:D4','C5:D6','DISPLAY COUNTER',BASELINE+people,'#DDF7E8','#176B45'],
+    ['E4:F4','E5:F6','UPDATE OPT-IN',optRate,'#FCE8D5','#9A4D0A'],
+    ['G4:H4','G5:H6','SAMPLE',rows.length<10?'Early':'Growing','#EDE3FF','#6336A3']
+  ];
+  cards.forEach(c=>{
+    d.getRange(c[0]).merge().setValue(c[2]).setBackground(c[4]).setFontColor(c[5]).setFontWeight('bold');
+    d.getRange(c[1]).merge().setValue(c[3]).setBackground(c[4]).setFontColor(c[5]).setFontSize(22).setFontWeight('bold').setVerticalAlignment('middle');
+  });
+
+  d.getRange('A8:H8').merge().setValue('QUICK INSIGHTS');
+  const insights=[
+    ['TOP GOAL',countAnswers('primary_goal',true)],
+    ['TOP PAIN POINT',countAnswers('current_pain_point',true)],
+    ['TOP PACKAGING',countAnswers('packaging_preference',false)],
+    ['TOP FORMAT',countAnswers('supplement_format',false)],
+    ['TOP PRICE RANGE',countAnswers('monthly_price',false)],
+    ['PURCHASE INTENT',countAnswers('purchase_intent',false)],
+    ['DISCOVERY CHANNEL',countAnswers('discovery_source',false)],
+    ['PURCHASE BARRIER',countAnswers('purchase_barrier',true)]
+  ];
+  const insightRows=insights.map(([label,list])=>[label,list.length?list[0][0]+' · '+list[0][1]+' ('+Math.round(list[0][2]*100)+'%)':'No responses yet']);
+  d.getRange(9,1,insightRows.length,2).setValues(insightRows);
+  d.getRange('A9:A16').setBackground('#EAF1FB').setFontColor('#244A73').setFontWeight('bold');
+  d.getRange('B9:B16').setBackground('#F7F9FC');
+  d.getRange('A9:B16').setWrap(true).setVerticalAlignment('middle');
+  d.getRange('D9:H12').merge().setValue(rows.length<10
+    ? 'Early sample: directional signals only. More responses are needed before product, pricing or marketing decisions.'
+    : 'Percentages show the share of respondents. Multi-select answers may add up to more than 100%.');
+  d.getRange('D9:H12').setBackground('#FFF1D8').setFontColor('#784B0B').setWrap(true).setVerticalAlignment('middle');
+
+  const charts=[
+    ['primary_goal','Customer goals',true,'#3977D5'],
+    ['current_pain_point','Pain points',true,'#23A58A'],
+    ['monthly_price','Price preference',false,'#F29E4C'],
+    ['purchase_intent','Purchase intent',false,'#8A63D2'],
+    ['discovery_source','Discovery channels',false,'#E36C82'],
+    ['packaging_preference','Packaging preference',false,'#32A6B8']
+  ];
+  const ranges={};
+  let ar=1;
+  charts.forEach(item=>{
+    const data=countAnswers(item[0],item[2]);
+    a.getRange(ar,1,1,3).setValues([[item[1],'Responses','Share']]).setFontWeight('bold').setBackground('#17365D').setFontColor('#FFFFFF');
+    if(data.length){
+      a.getRange(ar+1,1,data.length,3).setValues(data);
+      ranges[item[0]]={row:ar,rows:data.length+1};
+    } else {
+      a.getRange(ar+1,1,1,3).setValues([['No responses',0,0]]);
+      ranges[item[0]]={row:ar,rows:2};
+    }
+    ar+=Math.max(data.length,1)+3;
+  });
+  const positions=[[15,1],[15,5],[32,1],[32,5],[49,1],[49,5]];
+  charts.forEach((item,i)=>{
+    const range=ranges[item[0]];
+    const chart=d.newChart().setChartType(Charts.ChartType.BAR)
+      .addRange(a.getRange(range.row,1,range.rows,2)).setNumHeaders(1)
+      .setOption('title',item[1]).setOption('legend',{position:'none'})
+      .setOption('colors',[item[3]]).setOption('backgroundColor','#FFFFFF')
+      .setOption('chartArea',{backgroundColor:'#FFFFFF',width:'78%',height:'75%'})
+      .setOption('hAxis',{minValue:0,title:'Respondents',textStyle:{color:'#5B6677',fontSize:9}})
+      .setOption('vAxis',{textStyle:{color:'#344054',fontSize:10}})
+      .setOption('titleTextStyle',{color:'#183153',fontSize:13,bold:true})
+      .setOption('width',520).setOption('height',290)
+      .setPosition(positions[i][0],positions[i][1],0,0).build();
+    d.insertChart(chart);
+  });
+
+  d.setFrozenRows(2);d.setColumnWidths(1,8,130);
+  d.setRowHeight(1,42);d.setRowHeight(2,26);d.setRowHeights(4,3,28);d.setRowHeights(9,8,30);d.setRowHeight(8,28);
+  d.getRange('A1:H1').setBackground('#17365D').setFontColor('#FFFFFF').setFontSize(17).setFontWeight('bold').setVerticalAlignment('middle');
+  d.getRange('A2:H2').setBackground('#EAF1F8').setFontColor('#52657A').setFontSize(10);
+  d.getRange('A8:H8').setBackground('#17365D').setFontColor('#FFFFFF').setFontWeight('bold');
+  a.setFrozenRows(1);a.setColumnWidth(1,260);a.setColumnWidth(2,120);a.setColumnWidth(3,100);
+  if(a.getLastRow()>0)a.getDataRange().setVerticalAlignment('middle').setWrap(true);
+  a.hideSheet();ss.setActiveSheet(d);ss.moveActiveSheet(1);
 }
+
 function getSheet_(){const ss=SpreadsheetApp.openById(SPREADSHEET_ID);let sh=ss.getSheetByName(SHEET_NAME);if(!sh)sh=ss.insertSheet(SHEET_NAME);if(sh.getLastRow()===0){sh.appendRow(HEADERS);sh.setFrozenRows(1);sh.getRange(1,1,1,HEADERS.length).setFontWeight('bold').setBackground('#DCEBFF');}return sh;}
 function uniquePeople_(sh){if(sh.getLastRow()<2)return [];const values=sh.getRange(2,4,sh.getLastRow()-1,1).getDisplayValues().flat(),seen={};values.forEach(v=>{const k=phoneKey_(v);if(k)seen[k]=true;});return Object.keys(seen);}
 function phoneKey_(v){return String(v||'').replace(/\D/g,'').slice(-10);}
