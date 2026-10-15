@@ -33,7 +33,7 @@ function savePayload_(p){
   const lock=LockService.getScriptLock();
   try{
     lock.waitLock(30000);
-    const name=clean_(p.first_name,80),phone=clean_(p.whatsapp_number||p.phone,32),digits=phone.replace(/\\D/g,'');
+    const name=clean_(p.first_name,80),phone=clean_(p.whatsapp_number||p.phone,32),digits=phone.replace(/\D/g,'');
     if(name.length<2||digits.length<8||p.marketing_consent!==true)return {ok:false,reason:'invalid_fields',message:'Please enter your name, a valid WhatsApp number and consent.'};
     const sh=getSheet_(),last=sh.getLastRow(),normalized=phoneKey_(phone);
     if(last>1){const phones=sh.getRange(2,4,last-1,1).getDisplayValues().flat();if(phones.some(v=>phoneKey_(v)===normalized))return {ok:false,reason:'already_registered'};}
